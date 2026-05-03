@@ -87,31 +87,60 @@ app.get('/chats', async (req, res) => {
   }
 });
 
+async function buildMessageResult(messages, contextCount) {
+  const uniqueSenderIds = [...new Set(
+    messages.filter((m) => !m.fromMe).map((m) => m.author ?? m.from)
+  )];
+  const nameMap = Object.fromEntries(
+    await Promise.allSettled(uniqueSenderIds.map((id) => resolveContactName(id)))
+      .then((results) => results.map((r, i) => [uniqueSenderIds[i], r.status === 'fulfilled' ? r.value : uniqueSenderIds[i]]))
+  );
+  return messages.map((m, i) => {
+    const senderId = m.author ?? m.from;
+    const entry = {
+      id: m.id._serialized,
+      from: senderId,
+      sender_name: m.fromMe ? 'You' : (nameMap[senderId] ?? senderId),
+      body: m.body,
+      timestamp: m.timestamp,
+      is_from_me: m.fromMe,
+    };
+    if (contextCount !== undefined) {
+      entry.is_context = i < contextCount;
+    }
+    return entry;
+  });
+}
+
 app.get('/chats/:chat_id/messages', async (req, res) => {
   if (!clientReady) return notReady(res);
   const limit = Math.min(parseInt(req.query.limit ?? '20', 10), 100);
+  const contextParam = req.query.context;
+  const context = contextParam !== undefined ? Math.max(0, parseInt(contextParam, 10)) : undefined;
   try {
     const chat = await findChat(req.params.chat_id);
     if (!chat) return res.status(404).json({ error: 'chat_not_found' });
-    const messages = await chat.fetchMessages({ limit });
-    const uniqueSenderIds = [...new Set(
-      messages.filter((m) => !m.fromMe).map((m) => m.author ?? m.from)
-    )];
-    const nameMap = Object.fromEntries(
-      await Promise.allSettled(uniqueSenderIds.map((id) => resolveContactName(id)))
-        .then((results) => results.map((r, i) => [uniqueSenderIds[i], r.status === 'fulfilled' ? r.value : uniqueSenderIds[i]]))
-    );
-    const result = messages.map((m) => {
-      const senderId = m.author ?? m.from;
-      return {
-        id: m.id._serialized,
-        from: senderId,
-        sender_name: m.fromMe ? 'You' : (nameMap[senderId] ?? senderId),
-        body: m.body,
-        timestamp: m.timestamp,
-        is_from_me: m.fromMe,
-      };
-    });
+    const fetchLimit = context !== undefined ? limit + context : limit;
+    const messages = await chat.fetchMessages({ limit: fetchLimit });
+    const result = await buildMessageResult(messages, context !== undefined ? Math.max(0, messages.length - limit) : undefined);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/chats/:chat_id/unread', async (req, res) => {
+  if (!clientReady) return notReady(res);
+  const contextParam = req.query.context;
+  const context = contextParam !== undefined ? Math.max(0, parseInt(contextParam, 10)) : 0;
+  try {
+    const chat = await findChat(req.params.chat_id);
+    if (!chat) return res.status(404).json({ error: 'chat_not_found' });
+    const unreadCount = chat.unreadCount ?? 0;
+    if (unreadCount === 0) return res.json([]);
+    const messages = await chat.fetchMessages({ limit: unreadCount + context });
+    const actualContext = Math.max(0, messages.length - unreadCount);
+    const result = await buildMessageResult(messages, actualContext);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
