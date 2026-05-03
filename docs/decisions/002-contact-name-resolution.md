@@ -18,7 +18,15 @@ The bridge exposes `GET /contacts/resolve?ids=id1,id2,...` which calls `waClient
 
 The MCP server collects all unique sender IDs from both context and unread messages, resolves them in one batched call, and builds a speaker map before formatting any output.
 
-**Option C: Include context messages but skip name resolution**
+**Option C: Summarise unread messages only, no context window**
+
+Fetch only the unread messages and summarise those directly.
+
+- Simpler — no extra fetch, no context overhead
+- Breaks for any message that continues a prior thread: pronouns ("you", "they", "he"), topic references ("that drink", "the video"), and replies are unresolvable without the preceding exchange
+- Group chats almost always open mid-conversation; this option produces wrong or vague summaries in practice
+
+**Option D: Include context messages but skip name resolution**
 
 Return raw IDs or push names and let Claude infer who is who from conversational cues.
 
@@ -31,7 +39,9 @@ Use **Option B** — dedicated `/contacts/resolve` endpoint with batched resolut
 
 The speaker map (`mcp-server/speaker_map.py`) builds a `{sender_id → display_name}` dict covering all messages (context + unread) before any line is formatted. Messages from the authenticated user are mapped to `"You"` directly, bypassing the contact lookup.
 
-Context messages (up to 10 prior messages per chat) are fetched via `/chats/:id/unread?context=10` and included in the resolution pass even though they are not part of the summary itself. This is necessary because unread messages frequently open mid-conversation ("yeah exactly", "did you confirm that?") and the pronoun referents only appear in the context window.
+Context messages (up to 10 prior messages per chat) are fetched via `/chats/:id/unread?context=10` and included in the resolution pass even though they are not part of the summary itself. This is necessary because unread messages frequently open mid-conversation with replies like "yeah exactly" or "did you confirm that?" — the pronoun referents ("you", "they", "he") only appear in the messages that came before the unread window.
+
+Without context, a message like "what did you think of it?" is ambiguous — Claude cannot tell who "you" is or what "it" refers to. With 5–10 prior messages prepended and labelled `[context]`, Claude can trace the thread back to the last named speaker and resolve the reference correctly before writing the summary.
 
 ## Tradeoffs Accepted
 
