@@ -59,6 +59,34 @@ Credentials are saved to `.wwebjs_auth/` (gitignored) after the first QR scan. S
 
 If WhatsApp revokes the session (phone offline for days, or manually unlinked from Linked Devices), delete `.wwebjs_auth/` and re-scan.
 
+## Registering the MCP server with Claude Code
+
+Once the bridge is running and you've scanned the QR code, register the MCP server so Claude Code can use it from any project.
+
+**Option A — global (available in every Claude Code session):**
+```bash
+claude mcp add whatsapp \
+  --scope user \
+  -- /absolute/path/to/whatsapp-integration/mcp-server/.venv/bin/python3 \
+     /absolute/path/to/whatsapp-integration/mcp-server/server.py
+```
+
+**Option B — project-local (only in this directory):**
+```bash
+claude mcp add whatsapp \
+  -- /absolute/path/to/whatsapp-integration/mcp-server/.venv/bin/python3 \
+     /absolute/path/to/whatsapp-integration/mcp-server/server.py
+```
+
+Replace `/absolute/path/to/whatsapp-integration` with the real path on your machine (e.g. `/home/yourname/projects/whatsapp-integration`).
+
+Verify it registered:
+```bash
+claude mcp list
+```
+
+The MCP server is a stdio process — Claude Code starts and stops it automatically per session.
+
 ## Available tools in Claude Code
 
 | Tool | Description |
@@ -66,6 +94,76 @@ If WhatsApp revokes the session (phone offline for days, or manually unlinked fr
 | `list_chats` | List recent chats, optionally filter by name |
 | `get_messages` | Fetch recent messages from a chat |
 | `send_message` | Send a text message to a chat |
+| `summarise_unread` | Fetch all unread messages across every chat, with context for pronoun resolution |
+
+### Sending messages
+
+When calling `send_message` or hitting the bridge directly, the body field must be `text`:
+
+```json
+POST /chats/{chat_id}/send
+{"text": "your message here"}
+```
+
+Not `message`, not `body` — `text`.
+
+### Summarising unread messages
+
+The `summarise_unread` tool returns both context messages (up to 10 prior messages per chat) and the unread messages themselves. Always read the context before summarising — it establishes who "you", "he", "they" refer to in the unread portion.
+
+If you're configuring Claude via a `CLAUDE.md`, add this rule:
+
+> When summarising unread messages, always read context messages first to resolve pronouns and topic continuations. The summary should cover unread content only, but context must be read before writing it.
+
+## How name resolution works
+
+Every message in the bridge carries a raw sender ID (e.g. `447911123456@c.us`). Before returning messages to Claude, the MCP server resolves these to human-readable names in two steps:
+
+1. **Your messages** — any message where `is_from_me: true` is labelled `"You"` regardless of the sender ID.
+2. **Other senders** — all other unique IDs are sent in a single batch to `GET /contacts/resolve?ids=id1,id2,...`. The bridge calls WhatsApp's own contact store for each ID, preferring:
+   - Your **saved contact name** (e.g. "Amar") — what you've named them in your phone
+   - Their **push name** (their own WhatsApp display name) — fallback if you haven't saved them
+   - The **raw ID** — last resort if lookup fails
+
+Resolution is done before any message is shown to Claude, so every line in a summary is already labelled with a real name. This is also why context messages must be read — if an unread message says "what did you think of that?", the context line showing who sent the previous message is what lets Claude know who "you" refers to.
+
+## Sample Claude prompts
+
+### Summarising
+
+```
+Summarise unread in [chat name]
+```
+```
+What's new in Family chat?
+```
+```
+Summarise all unread WhatsApp messages
+```
+```
+Any unread in the work group?
+```
+
+### Replying
+
+```
+Reply to [chat name] saying I'll be there at 7
+```
+```
+Send a message to Amar on WhatsApp: "sounds good, see you then"
+```
+```
+Tell the family group I'm on my way
+```
+
+### Finding a chat
+
+```
+Search WhatsApp for a chat called "tennis"
+```
+```
+List my recent WhatsApp chats
+```
 
 ## Stopping the bridge
 
