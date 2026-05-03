@@ -2,6 +2,51 @@
 
 Gives Claude Code access to WhatsApp — read messages, list chats, send text — via a local Node.js bridge and a Python MCP server.
 
+## Quickstart
+
+> **Tip:** Once you have Claude Code installed, you can hand the rest of this setup to Claude itself. Open a terminal in the cloned repo and run `claude`, then tell it: *"Set up this project for me — check my requirements and run the install steps from the README."* Claude will check your Node/Python versions, run the install commands, and tell you what's missing.
+
+**Requirements:**
+
+| Requirement | Why | Check |
+|---|---|---|
+| Node.js ≥ 18 | Runs the WhatsApp bridge | `node --version` |
+| npm | Installs bridge dependencies | `npm --version` |
+| Python 3.12+ | Runs the MCP server | `python3 --version` |
+| Claude Code CLI | Hosts the MCP server and talks to Claude | `claude --version` |
+| A WhatsApp account | You'll scan a QR to link this as a Linked Device | — |
+| WhatsApp on your phone | Needed during QR scan and for session keepalive | — |
+
+> **Headless server?** Puppeteer downloads Chromium automatically, but if it fails run `sudo apt install chromium-browser` first.
+
+```bash
+# 1. Clone and enter the repo
+git clone https://github.com/<your-username>/whatsapp-integration.git
+cd whatsapp-integration
+
+# 2. Install dependencies
+cd wa-bridge && npm install
+cd ../mcp-server && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+cd ..
+
+# 3. Start the WhatsApp bridge
+cd wa-bridge && npm start
+```
+
+A QR code will appear. On your phone: **WhatsApp → Linked Devices → Link a device → scan the QR**. Wait for `CLIENT_READY` in the terminal.
+
+```bash
+# 4. Register the MCP server with Claude Code (run from the repo root)
+claude mcp add whatsapp \
+  --scope user \
+  -- "$(pwd)/mcp-server/.venv/bin/python3" \
+     "$(pwd)/mcp-server/server.py"
+```
+
+That's it. Open a new Claude Code session and try: *"Summarise my unread WhatsApp messages"*.
+
+---
+
 ## Architecture
 
 ```
@@ -36,7 +81,7 @@ Puppeteer downloads Chromium automatically on `npm install`. If it fails on a he
 cd wa-bridge && npm install
 
 # 2. Install Python MCP server deps
-cd ../mcp-server && python3 -m venv .venv && .venv/bin/pip install mcp httpx
+cd ../mcp-server && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
 ## Starting the services
