@@ -1,0 +1,271 @@
+openapi: 3.1.0
+info:
+  title: WhatsApp Integration API
+  version: 0.1.0
+  description: |
+    Local API for interacting with WhatsApp Web.
+
+    Two backend adapters are supported:
+    - **playwright** — drives WhatsApp Web via browser automation (no extra deps, uses existing Playwright MCP)
+    - **whatsapp-web.js** — connects via the whatsapp-web.js Node.js library (requires a running local process)
+
+    The active backend is selected via the `X-Backend` request header or the `WHATSAPP_BACKEND` environment variable.
+    If neither is set, defaults to `playwright`.
+
+servers:
+  - url: http://localhost:8765
+    description: Local server
+
+tags:
+  - name: chats
+    description: List and browse conversations
+  - name: messages
+    description: Read and send messages
+  - name: contacts
+    description: Search and look up contacts
+
+paths:
+
+  /chats:
+    get:
+      summary: List recent chats
+      operationId: listChats
+      tags: [chats]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+          description: Maximum number of chats to return, ordered by most recent activity.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [chats]
+                properties:
+                  chats:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Chat"
+        "503":
+          $ref: "#/components/responses/BackendUnavailable"
+
+  /chats/{chatId}/messages:
+    get:
+      summary: Read messages from a chat
+      operationId: getMessages
+      tags: [messages]
+      parameters:
+        - name: chatId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Chat ID as returned by `listChats` or `searchContacts`.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+          description: Number of messages to return, most recent first.
+        - name: before
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Return only messages sent before this timestamp (ISO 8601). Use for pagination.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [messages]
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Message"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/BackendUnavailable"
+
+  /chats/{chatId}/messages/send:
+    post:
+      summary: Send a message to a chat
+      operationId: sendMessage
+      tags: [messages]
+      parameters:
+        - name: chatId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Chat ID to send the message to.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  description: Message body (plain text).
+                  maxLength: 65536
+      responses:
+        "201":
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [messageId, timestamp]
+                properties:
+                  messageId:
+                    type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/BackendUnavailable"
+
+  /contacts/search:
+    get:
+      summary: Search contacts
+      operationId: searchContacts
+      tags: [contacts]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Name or phone number fragment to search for.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 50
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [contacts]
+                properties:
+                  contacts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Contact"
+        "503":
+          $ref: "#/components/responses/BackendUnavailable"
+
+components:
+
+  schemas:
+
+    Chat:
+      type: object
+      required: [id, name, lastMessageAt, unreadCount]
+      properties:
+        id:
+          type: string
+          description: Stable chat identifier (phone number or group ID).
+        name:
+          type: string
+          description: Contact name or group name.
+        lastMessageAt:
+          type: string
+          format: date-time
+        unreadCount:
+          type: integer
+        isGroup:
+          type: boolean
+          default: false
+
+    Message:
+      type: object
+      required: [id, chatId, fromMe, senderName, text, timestamp]
+      properties:
+        id:
+          type: string
+        chatId:
+          type: string
+        fromMe:
+          type: boolean
+        senderName:
+          type: string
+        text:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        replyToId:
+          type: string
+          description: ID of the message this is a reply to, if any.
+
+    Contact:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          description: WhatsApp ID (phone number in international format, e.g. 447700900123).
+        name:
+          type: string
+        phoneNumber:
+          type: string
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+  responses:
+
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    NotFound:
+      description: Chat or resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    BackendUnavailable:
+      description: WhatsApp backend is not reachable (browser not open, or whatsapp-web.js not running)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  headers:
+    X-Backend:
+      description: Override the active backend for this request (`playwright` or `wwjs`)
+      schema:
+        type: string
+        enum: [playwright, wwjs]
