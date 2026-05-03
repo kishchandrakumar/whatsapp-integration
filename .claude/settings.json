@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "whatsapp": {
-      "command": "/home/chandummy/projects/whatsapp-integration/mcp-server/.venv/bin/python3",
-      "args": ["/home/chandummy/projects/whatsapp-integration/mcp-server/server.py"]
-    }
-  }
-}

@@ -8,3 +8,5 @@ __pycache__/
 mcp-server/.venv/
 dist/
 .DS_Store
+openspec/
+.claude/
