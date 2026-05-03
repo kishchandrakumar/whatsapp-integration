@@ -19,4 +19,4 @@
 
 ## 3. Commit
 
-- [ ] 3.1 Commit changes to `mcp-server/server.py` with message `feat: add summarise_unread MCP tool`
+- [x] 3.1 Commit changes to `mcp-server/server.py` with message `feat: add summarise_unread MCP tool`
