@@ -15,7 +15,8 @@ waClient = new Client({
   authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth' }),
   puppeteer: {
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    protocolTimeout: 120000,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
   },
 });
 

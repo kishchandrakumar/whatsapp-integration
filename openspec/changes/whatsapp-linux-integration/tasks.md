@@ -16,11 +16,11 @@
 - [x] 2.7 Implement Express route `GET /chats/:chat_id/messages?limit=N`
 - [x] 2.8 Implement Express route `POST /chats/:chat_id/send` with `{"text": "..."}` body
 - [x] 2.9 Add error handling for client-not-ready (HTTP 503) and chat-not-found (HTTP 404) across all routes
-- [ ] 2.10 Manual test: start bridge, scan QR, verify `CLIENT_READY` log and all routes via `curl`
+- [x] 2.10 Manual test: start bridge, scan QR, verify `CLIENT_READY` log and all routes via `curl`
 
 ## 3. Session Persistence Verification
 
-- [ ] 3.1 Restart the bridge after initial QR scan and confirm reconnection without QR prompt
+- [x] 3.1 Restart the bridge after initial QR scan and confirm reconnection without QR prompt
 - [x] 3.2 Document the `.wwebjs_auth/` directory location in README
 
 ## 4. Python MCP Server
@@ -44,4 +44,4 @@
 
 - [x] 6.1 Write `README.md`: purpose, prerequisites (Node.js, Python, Chromium), start/stop procedure, QR scan instructions
 - [x] 6.2 Document known risks (ToS, session expiry) in README
-- [ ] 6.3 Commit initial working state with conventional commit messages
+- [x] 6.3 Commit initial working state with conventional commit messages
