@@ -1,4 +1,4 @@
-"""WhatsApp MCP server — exposes list_chats, get_messages, send_message."""
+"""WhatsApp MCP server — exposes list_chats, get_messages, send_message, summarise_unread."""
 
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ import httpx
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
+
+from speaker_map import build_speaker_map
 
 BRIDGE_URL = "http://localhost:3456"
 
@@ -70,6 +72,15 @@ async def list_tools() -> list[Tool]:
                 "required": ["chat_id", "text"],
             },
         ),
+        Tool(
+            name="summarise_unread",
+            description=(
+                "Fetch all unread WhatsApp messages across every chat with unread messages. "
+                "Returns a labelled thread per chat with resolved speaker names and up to 10 "
+                "prior-context messages, ready for Claude to summarise."
+            ),
+            inputSchema={"type": "object", "properties": {}},
+        ),
     ]
 
 
@@ -128,6 +139,53 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 resp.raise_for_status()
                 data = resp.json()
                 return [TextContent(type="text", text=f"Message sent. ID: {data['message_id']}")]
+
+            elif name == "summarise_unread":
+                resp = await client.get(f"{BRIDGE_URL}/chats")
+                resp.raise_for_status()
+                chats = resp.json()
+                unread_chats = [c for c in chats if c.get("unread_count", 0) > 0]
+                if not unread_chats:
+                    return [TextContent(type="text", text="No unread messages.")]
+
+                blocks: list[str] = []
+                for chat in unread_chats:
+                    chat_id = chat["id"]
+                    chat_name = chat["name"]
+                    unread_count = chat["unread_count"]
+
+                    resp = await client.get(
+                        f"{BRIDGE_URL}/chats/{chat_id}/unread",
+                        params={"context": 10, "limit": 50},
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+
+                    context_msgs: list[dict] = data.get("context", [])
+                    unread_msgs: list[dict] = data.get("messages", [])
+                    all_msgs = context_msgs + unread_msgs
+                    speaker_map = await build_speaker_map(all_msgs, BRIDGE_URL)
+
+                    cap_note = ""
+                    if unread_count > 50:
+                        cap_note = f" (50 of {unread_count} unread messages shown)"
+
+                    header = f"[Chat: {chat_name}]{cap_note}"
+                    lines = [header]
+
+                    for m in context_msgs:
+                        ts = _fmt_ts(m["timestamp"])
+                        sender = speaker_map.get(m.get("from", ""), m.get("from", ""))
+                        lines.append(f"[{ts}] [context] {sender}: {m['body']}")
+
+                    for m in unread_msgs:
+                        ts = _fmt_ts(m["timestamp"])
+                        sender = speaker_map.get(m.get("from", ""), m.get("from", ""))
+                        lines.append(f"[{ts}] {sender}: {m['body']}")
+
+                    blocks.append("\n".join(lines))
+
+                return [TextContent(type="text", text="\n\n".join(blocks))]
 
             else:
                 return [TextContent(type="text", text=f"Unknown tool: {name}")]
