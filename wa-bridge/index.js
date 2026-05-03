@@ -46,6 +46,15 @@ function notReady(res) {
   res.status(503).json({ error: 'client_not_ready' });
 }
 
+async function resolveContactName(id) {
+  try {
+    const contact = await waClient.getContactById(id);
+    return contact.name ?? contact.pushname ?? id;
+  } catch (_) {
+    return id;
+  }
+}
+
 async function findChat(chatId) {
   const chats = await waClient.getChats();
   return chats.find((c) => c.id._serialized === chatId) ?? null;
@@ -85,16 +94,59 @@ app.get('/chats/:chat_id/messages', async (req, res) => {
     const chat = await findChat(req.params.chat_id);
     if (!chat) return res.status(404).json({ error: 'chat_not_found' });
     const messages = await chat.fetchMessages({ limit });
-    const result = messages.map((m) => ({
-      id: m.id._serialized,
-      from: m.author ?? m.from,
-      body: m.body,
-      timestamp: m.timestamp,
-      is_from_me: m.fromMe,
-    }));
+    const uniqueSenderIds = [...new Set(
+      messages.filter((m) => !m.fromMe).map((m) => m.author ?? m.from)
+    )];
+    const nameMap = Object.fromEntries(
+      await Promise.allSettled(uniqueSenderIds.map((id) => resolveContactName(id)))
+        .then((results) => results.map((r, i) => [uniqueSenderIds[i], r.status === 'fulfilled' ? r.value : uniqueSenderIds[i]]))
+    );
+    const result = messages.map((m) => {
+      const senderId = m.author ?? m.from;
+      return {
+        id: m.id._serialized,
+        from: senderId,
+        sender_name: m.fromMe ? 'You' : (nameMap[senderId] ?? senderId),
+        body: m.body,
+        timestamp: m.timestamp,
+        is_from_me: m.fromMe,
+      };
+    });
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/contacts/resolve', async (req, res) => {
+  if (!clientReady) return notReady(res);
+  const raw = req.query.ids ?? '';
+  const ids = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  if (ids.length === 0) return res.status(400).json({ error: 'ids_required' });
+  if (ids.length > 50) return res.status(400).json({ error: 'too_many_ids', max: 50 });
+  try {
+    const results = await Promise.allSettled(ids.map((id) => resolveContactName(id)));
+    const nameMap = Object.fromEntries(
+      results.flatMap((r, i) => r.status === 'fulfilled' ? [[ids[i], r.value]] : [])
+    );
+    res.json(nameMap);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/contacts/:contact_id', async (req, res) => {
+  if (!clientReady) return notReady(res);
+  try {
+    const contact = await waClient.getContactById(req.params.contact_id);
+    if (!contact) return res.status(404).json({ error: 'contact_not_found' });
+    res.json({
+      id: contact.id._serialized,
+      name: contact.name ?? contact.pushname ?? null,
+      number: contact.number ?? null,
+    });
+  } catch (_) {
+    res.status(404).json({ error: 'contact_not_found' });
   }
 });
 
